@@ -1,17 +1,27 @@
 using UnityEngine;
+using System.Collections;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerMovement : MonoBehaviour
 {
     #region Variables
 
-    [Header("Interaction Settings (Etkileşim)")]
-    [Tooltip("Karakter şu an kontrol edilebilir mi? (Tırmanırken false olacak)")]
+    [Header("Interaction (Etkileşim)")]
     public bool canMove = true; 
+    [SerializeField] private float interactDistance = 1.5f;
     
-    [Tooltip("Etkileşim mesafesi (Örn: 2 metre)")]
-    [SerializeField] private float interactDistance = 2.0f;
-    [SerializeField] private LayerMask interactLayer; // Sadece 'Interactable' layer'ını görsün diye
+    // Hem normal etkileşim hem de tırmanma katmanlarını buraya ekleyeceğiz
+    [SerializeField] private LayerMask interactLayer; 
+
+    [Header("Auto-Climb Settings (Otomatik Tırmanma)")]
+    [Tooltip("Sadece bu layerdaki objelere tırmanır")]
+    [SerializeField] private LayerMask climbLayer; 
+    
+    [Tooltip("Karakter en fazla ne kadar yükseğe tırmanabilir?")]
+    [SerializeField] private float maxClimbHeight = 2.5f; 
+    
+    [Tooltip("Tırmanma animasyonu süresi")]
+    [SerializeField] private float climbDuration = 1.2f;
 
     [Header("Movement Settings")]
     public float speed = 4f; 
@@ -55,7 +65,6 @@ public class PlayerMovement : MonoBehaviour
 
     private void Update()
     {
-        // 1. Yer Kontrolü (Her zaman çalışmalı)
         isGrounded = characterController.isGrounded;
         animator.SetBool("IsGrounded", isGrounded);
 
@@ -65,29 +74,22 @@ public class PlayerMovement : MonoBehaviour
         }
 
         // --- ETKİLEŞİM KONTROLÜ (F Tuşu) ---
-        // Sadece hareket edebiliyorsak etkileşime girebiliriz
         if (canMove && Input.GetKeyDown(KeyCode.F))
         {
             CheckInteraction();
         }
 
-        // 2. Hareket Mantığı (Sadece canMove aktifse çalışır!)
         if (canMove)
         {
             HandleMovement();
+            velocity.y += gravity * Time.deltaTime;
+            characterController.Move(velocity * Time.deltaTime);
         }
         else
         {
-            // Hareket kilitliyken animasyonun 'Speed' değerini sıfırla ki koşuyor gibi görünmesin
+            // Hareket kilitliyken animasyonları durdur
             animator.SetFloat("Speed", 0f);
             moveDirection = Vector3.zero;
-        }
-
-        // 3. Yerçekimi (Tırmanırken yerçekimi de kapansın isteyebiliriz ama şimdilik açık kalsın)
-        if (canMove)
-        {
-            velocity.y += gravity * Time.deltaTime;
-            characterController.Move(velocity * Time.deltaTime);
         }
     }
 
@@ -97,25 +99,69 @@ public class PlayerMovement : MonoBehaviour
 
     private void CheckInteraction()
     {
-        // Karakterin merkezinden ileriye doğru ışın at
+        // 1. Önce "IInteractable" scripti olan özel objelere bak (Kapı, Sandık vs.)
         Ray ray = new Ray(transform.position + Vector3.up * 1f, transform.forward);
         RaycastHit hit;
 
-        // Debug için sahnede çizgiyi görelim (Sadece Scene ekranında görünür)
-        Debug.DrawRay(ray.origin, ray.direction * interactDistance, Color.yellow, 2f);
-
-        // Eğer ışın bir şeye çarparsa
         if (Physics.Raycast(ray, out hit, interactDistance, interactLayer))
         {
-            // Çarptığı objede "IInteractable" kimliği var mı?
             IInteractable interactable = hit.collider.GetComponent<IInteractable>();
-
             if (interactable != null)
             {
-                // Varmış! O zaman etkileşimi başlat.
-                interactable.Interact(this); // 'this' diyerek kendimizi (Player) gönderiyoruz
+                interactable.Interact(this);
+                return; // Özel etkileşim bulduysak tırmanmaya bakma, çık.
             }
         }
+
+        // 2. Özel bir script yoksa, "Tırmanılabilir Duvar" mı diye bak
+        CheckForClimb();
+    }
+
+    private void CheckForClimb()
+    {
+        // Göğüs hizasından ileriye ışın at
+        Vector3 rayOrigin = transform.position + Vector3.up * 1.0f;
+        RaycastHit wallHit;
+
+        // ÖNÜMDE DUVAR VAR MI?
+        if (Physics.Raycast(rayOrigin, transform.forward, out wallHit, 1f, climbLayer))
+        {
+            // Duvar bulduk! Şimdi duvarın TEPESİNİ bulmak için yukarıdan aşağı ışın atacağız.
+            // Karakterin kafasının biraz üstünden ve duvarın biraz içinden aşağıya bakıyoruz.
+            Vector3 topRayOrigin = wallHit.point + (Vector3.up * maxClimbHeight) + (transform.forward * 0.5f);
+            
+            RaycastHit topHit;
+            // Aşağı doğru tarama yap
+            if (Physics.Raycast(topRayOrigin, Vector3.down, out topHit, maxClimbHeight + 0.5f, climbLayer))
+            {
+                // Bulduk! topHit.point bizim inmemiz gereken yer.
+                StartCoroutine(PerformDynamicClimb(topHit.point));
+            }
+        }
+    }
+
+    private IEnumerator PerformDynamicClimb(Vector3 targetPoint)
+    {
+        canMove = false; // Kontrolü kilitle
+        
+        // Animasyonu başlat
+        if(animator != null) animator.SetTrigger("Climb");
+
+        // Karakteri duvara tam döndür (Hafif düzeltme)
+        Vector3 lookPos = targetPoint;
+        lookPos.y = transform.position.y;
+        transform.LookAt(lookPos);
+
+        // Bekle (Animasyon süresi)
+        yield return new WaitForSeconds(climbDuration);
+
+        // Işınla
+        characterController.enabled = false;
+        // Hedef noktanın tam ortasına değil, hafif üstüne koy ki içine düşmesin
+        transform.position = targetPoint + Vector3.up * 0.1f; 
+        characterController.enabled = true;
+
+        canMove = true; // Kontrolü aç
     }
 
     private void HandleMovement()
@@ -125,14 +171,12 @@ public class PlayerMovement : MonoBehaviour
             float input = Input.GetAxis("Horizontal");
             bool isRunning = Input.GetKey(KeyCode.LeftShift);
 
-            // --- EĞİLME ---
             if (Input.GetKeyDown(KeyCode.C))
             {
                 isCrouching = !isCrouching; 
                 animator.SetBool("IsCrouching", isCrouching);
             }
 
-            // Boyut Ayarı
             if (isCrouching)
             {
                 characterController.height = crouchHeight;
@@ -144,13 +188,11 @@ public class PlayerMovement : MonoBehaviour
                 characterController.center = originalCenter;
             }
 
-            // --- HIZ ---
             if (Mathf.Abs(input) >= 0.1f)
             {
                 float currentSpeed = speed; 
-                
                 if (isCrouching) currentSpeed = crouchSpeed; 
-                else if (isRunning) currentSpeed = speed * 1.5f;
+                else if (isRunning) currentSpeed = speed * 3f;
 
                 Vector3 direction = Quaternion.Euler(0, streetAngle, 0) * Vector3.forward;
                 moveDirection = direction * (input > 0 ? 1 : -1) * currentSpeed;
@@ -158,11 +200,7 @@ public class PlayerMovement : MonoBehaviour
                 float lookAngle = input > 0 ? streetAngle : streetAngle + 180f;
                 transform.rotation = Quaternion.Euler(0f, lookAngle, 0f);
 
-                // Animasyon
-                float animValue = 0f;
-                if (isCrouching) animValue = currentSpeed;
-                else animValue = isRunning ? 1f : 0.5f;
-                
+                float animValue = isCrouching ? currentSpeed : (isRunning ? 1f : 0.5f);
                 animator.SetFloat("Speed", animValue, 0.1f, Time.deltaTime);
             }
             else
@@ -171,7 +209,6 @@ public class PlayerMovement : MonoBehaviour
                 animator.SetFloat("Speed", 0f, 0.1f, Time.deltaTime);
             }
 
-            // --- ZIPLAMA ---
             if (Input.GetButtonDown("Jump") && !isCrouching)
             {
                 velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);

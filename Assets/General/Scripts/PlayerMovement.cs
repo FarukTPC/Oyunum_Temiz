@@ -25,7 +25,13 @@ public class PlayerMovement : MonoBehaviour
     
     [Tooltip("Merdiven yüzeyinden ne kadar uzakta/derinde durulacak?")]
     [Range(0.0f, 2.0f)] public float ladderDepthOffset = 0.5f; 
-    
+
+    [Tooltip("Merdiven bitince karakter platformun içine ne kadar girsin?")]
+    public float ladderExitForwardOffset = 1.2f;
+
+    [Tooltip("Çıkış işlemi tepeden kaç metre önce başlasın? (Havaya tırmanmayı önlemek için bunu 1.0 veya 1.2 yap)")]
+    public float ladderExitCheckOffset = 1.0f; // <--- YENİ KRİTİK AYAR
+
     private bool isClimbingLadder = false;
     private Collider currentLadderCollider;
 
@@ -116,20 +122,13 @@ public class PlayerMovement : MonoBehaviour
 
     private bool CheckForLadder()
     {
-        // 1. GERİDEN TARAMA (Bulletproof Mantığı)
-        // Karakter merdivenin içine girmiş olsa bile yakalamak için
-        // Işını karakterin 0.5 birim ARKASINDAN başlatıyoruz.
+        // 1. GERİDEN TARAMA (Bulletproof)
         Vector3 rayOrigin = transform.position + Vector3.up * 0.5f - (transform.forward * 0.5f);
-        
-        // Işını ileri (karakterin baktığı yöne) atıyoruz
         Ray ray = new Ray(rayOrigin, transform.forward);
         RaycastHit hit;
 
-        // Mesafe 1.5f (Geriden attığımız için menzili arttırdık)
         if (Physics.Raycast(ray, out hit, 1.5f, ladderLayer))
         {
-            // ÖNEMLİ: hit.normal bilgisini de gönderiyoruz!
-            // hit.normal = Yüzeyin baktığı yön (Doğru Derinlik Yönü)
             StartLadderClimbing(hit.collider, hit.normal);
             return true;
         }
@@ -146,20 +145,14 @@ public class PlayerMovement : MonoBehaviour
 
         if(animator != null) animator.SetBool("IsClimbing", true);
 
-        // --- 1. DÖNME AYARI ---
-        // Karakteri yüzeyin tam karşısına (Normalin tersine) döndür
-        // surfaceNormal: Yüzeyden sana bakan ok.
-        // -surfaceNormal: Yüzeye bakan ok.
+        // 1. DÖNME
         transform.rotation = Quaternion.LookRotation(-surfaceNormal);
         
-        // --- 2. POZİSYON AYARI (HİBRİT) ---
-        // A. Önce merdivenin tam merkezini (X, Z) al
+        // 2. POZİSYON (HİBRİT)
         float centerX = ladderCol.bounds.center.x;
         float centerZ = ladderCol.bounds.center.z;
         Vector3 ladderCenterPos = new Vector3(centerX, transform.position.y, centerZ);
 
-        // B. Şimdi bu merkezden, YÜZEY NORMALİ yönünde "ladderDepthOffset" kadar dışarı çık.
-        // Bu sayede merdiven ne tarafa dönük olursa olsun, karakter hep "dışarı/geriye" gider.
         Vector3 finalPos = ladderCenterPos + (surfaceNormal * ladderDepthOffset);
         
         transform.position = finalPos;
@@ -180,9 +173,13 @@ public class PlayerMovement : MonoBehaviour
             characterController.Move(climbVelocity * Time.deltaTime);
         }
 
+        // --- ÇIKIŞ KONTROLÜ (GÜNCELLENDİ) ---
         float ladderTopY = currentLadderCollider.bounds.max.y;
         
-        if (inputY > 0 && transform.position.y >= ladderTopY - 0.2f)
+        // Mantık: Ayaklar (transform.position.y), Merdiven Tepesinden (ladderTopY)
+        // 'ladderExitCheckOffset' kadar aşağıdayken çıkışı tetikle.
+        // Örn: Offset 1.2 ise, ayaklar tepeye 1.2m kala çıkış yapar.
+        if (inputY > 0 && transform.position.y >= ladderTopY - ladderExitCheckOffset)
         {
             ExitLadderTop();
         }
@@ -208,10 +205,20 @@ public class PlayerMovement : MonoBehaviour
         }
         
         Vector3 exitPos = transform.position;
-        exitPos.y = currentLadderCollider.bounds.max.y + 0.1f; 
-        exitPos += transform.forward * 0.6f; 
+        
+        // Yükseklik: Tepenin 20 cm üstü
+        exitPos.y = currentLadderCollider.bounds.max.y + 0.2f; 
+        
+        // İleri Gitme: Inspector ayarı kadar
+        exitPos += transform.forward * ladderExitForwardOffset; 
 
+        // Işınlanma
+        characterController.enabled = false;
         transform.position = exitPos;
+        characterController.enabled = true;
+
+        velocity = Vector3.zero;
+
         canMove = true;
         currentLadderCollider = null;
     }

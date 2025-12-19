@@ -14,8 +14,22 @@ public class PlayerMovement : MonoBehaviour
     [Header("Auto-Climb Settings (Otomatik Tırmanma)")]
     [Tooltip("Sadece bu layerdaki objelere tırmanır")]
     [SerializeField] private LayerMask climbLayer; 
+    
+    [Tooltip("Karakter en fazla ne kadar yükseğe tırmanabilir?")]
     [SerializeField] private float maxClimbHeight = 2.5f; 
+    
+    [Tooltip("Tırmanma animasyonu süresi")]
     [SerializeField] private float climbDuration = 1.2f;
+
+    [Header("Climb Precision Settings (Hassas Ayarlar)")]
+    [Tooltip("Animasyonun % kaçında YUKARI çıkma işlemi bitsin?")]
+    [Range(0.1f, 1.0f)] public float verticalClimbPercent = 0.8f;
+
+    [Tooltip("Animasyonun % kaçında İLERİ gitme işlemi başlasın?")]
+    [Range(0.0f, 0.9f)] public float forwardMoveStartPercent = 0.4f;
+
+    [Tooltip("Tırmanma bitince karakter kenardan ne kadar içeri girsin?")]
+    [Range(0.0f, 1.0f)] public float forwardOffset = 0.2f; 
 
     [Header("Movement Settings")]
     public float speed = 4f; 
@@ -91,8 +105,8 @@ public class PlayerMovement : MonoBehaviour
 
     private void CheckInteraction()
     {
-        // 1. Önce özel etkileşim var mı (Kapı, Sandık vs.)
-        Ray ray = new Ray(transform.position + Vector3.up * 1f, transform.forward);
+        // Normal etkileşim (Kapı vs.) hala 1.0f (Omuz hizası) kalsın
+        Ray ray = new Ray(transform.position + Vector3.up * 1.0f, transform.forward);
         RaycastHit hit;
 
         if (Physics.Raycast(ray, out hit, interactDistance, interactLayer))
@@ -105,23 +119,38 @@ public class PlayerMovement : MonoBehaviour
             }
         }
 
-        // 2. Yoksa Tırmanma var mı?
         CheckForClimb();
     }
 
     private void CheckForClimb()
     {
-        Vector3 rayOrigin = transform.position + Vector3.up * 1.0f;
+        // --- DEĞİŞİKLİK BURADA: AYAK BİLEĞİ HİZASI ---
+        // 0.3f yetmediği için 0.2f (20 cm) yaptık.
+        // Bu neredeyse kaldırım taşı hizasıdır.
+        Vector3 rayOrigin = transform.position + Vector3.up * 0.2f;
         RaycastHit wallHit;
 
-        if (Physics.Raycast(rayOrigin, transform.forward, out wallHit, 1f, climbLayer))
+        Debug.DrawRay(rayOrigin, transform.forward * 2.5f, Color.red, 2f);
+
+        if (Physics.Raycast(rayOrigin, transform.forward, out wallHit, 2.5f, climbLayer))
         {
+            // Duvar bulundu. Tepesini bulalım.
+            // Lazerin çıkış noktası duvarın yüzeyi + max yükseklik.
+            // forward * 0.5f ile duvarın içine girip aşağı tarıyoruz.
             Vector3 topRayOrigin = wallHit.point + (Vector3.up * maxClimbHeight) + (transform.forward * 0.5f);
             RaycastHit topHit;
             
+            Debug.DrawRay(topRayOrigin, Vector3.down * (maxClimbHeight + 0.2f), Color.blue, 2f); // +0.2f (Garanti olsun)
+
+            // Raycast mesafesini biraz artırdık (maxClimbHeight + 0.5f) ki zemini kesin bulsun
             if (Physics.Raycast(topRayOrigin, Vector3.down, out topHit, maxClimbHeight + 0.5f, climbLayer))
             {
-                StartCoroutine(PerformDynamicClimb(topHit.point));
+                // Hedef Nokta: Yükseklik tepeden, Konum duvardan
+                Vector3 finalTargetPoint = new Vector3(wallHit.point.x, topHit.point.y, wallHit.point.z);
+                
+                finalTargetPoint += transform.forward * forwardOffset; 
+
+                StartCoroutine(PerformDynamicClimb(finalTargetPoint));
             }
         }
     }
@@ -129,18 +158,45 @@ public class PlayerMovement : MonoBehaviour
     private IEnumerator PerformDynamicClimb(Vector3 targetPoint)
     {
         canMove = false; 
+        characterController.enabled = false; 
+
         if(animator != null) animator.SetTrigger("Climb");
 
+        Vector3 startPos = transform.position;
         Vector3 lookPos = targetPoint;
         lookPos.y = transform.position.y;
         transform.LookAt(lookPos);
 
-        yield return new WaitForSeconds(climbDuration);
+        float elapsedTime = 0f;
 
-        characterController.enabled = false;
-        transform.position = targetPoint + Vector3.up * 0.1f; 
-        characterController.enabled = true;
+        while (elapsedTime < climbDuration)
+        {
+            float t = elapsedTime / climbDuration;
+            
+            float yRatio = Mathf.Clamp01(t / verticalClimbPercent);
+            
+            float forwardDuration = 1.0f - forwardMoveStartPercent;
+            if (forwardDuration < 0.01f) forwardDuration = 0.01f;
+            float xzRatio = Mathf.Clamp01((t - forwardMoveStartPercent) / forwardDuration);
 
+            yRatio = Mathf.SmoothStep(0f, 1f, yRatio);
+            xzRatio = Mathf.SmoothStep(0f, 1f, xzRatio);
+
+            float currentY = Mathf.Lerp(startPos.y, targetPoint.y, yRatio);
+            Vector3 currentXZ = Vector3.Lerp(new Vector3(startPos.x, 0, startPos.z), new Vector3(targetPoint.x, 0, targetPoint.z), xzRatio);
+            
+            transform.position = new Vector3(currentXZ.x, currentY, currentXZ.z);
+
+            elapsedTime += Time.deltaTime;
+            yield return null; 
+        }
+
+        // --- SAKİN İNİŞ (Gömülme Yok) ---
+        transform.position = targetPoint; 
+        characterController.enabled = true; 
+        velocity = Vector3.zero;
+
+        yield return null; 
         canMove = true; 
     }
 
@@ -195,6 +251,7 @@ public class PlayerMovement : MonoBehaviour
                 animator.SetTrigger("Jump");
             }
         }
+        
         characterController.Move(moveDirection * Time.deltaTime);
     }
 

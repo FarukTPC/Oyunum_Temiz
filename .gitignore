@@ -1,42 +1,21 @@
-# --- UNITY STANDART GEREKSİZLERİ (Bunlar yüklenmesin) ---
-/[Ll]ibrary/
-/[Tt]emp/
-/[Oo]bj/
-/[Bb]uild/
-/[Bb]uilds/
-/[Ll]ogs/
-/[Uu]ser[Ss]ettings/
+# --- ÖNCE HER ŞEYİ YASAKLA ---
+/*
 
-# --- IDE ve KOD EDİTÖRÜ ÇÖPLERİ ---
-# Visual Studio ve VS Code'un oluşturduğu geçici dosyalar
-.vs/
-.vscode/
-.idea/
-*.csproj
-*.unityproj
-*.sln
-*.suo
-*.tmp
-*.user
-*.userprefs
-*.pidb
-*.booproj
-*.svd
-*.pdb
-*.mdb
-*.opendb
-*.VC.db
+# --- SADECE ŞUNLARA İZİN VER ---
+# 1. .gitignore dosyasının kendisine izin ver
+!.gitignore
 
-# --- İŞLETİM SİSTEMİ ÇÖPLERİ ---
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# 2. Oyunun Ayar Dosyalarına İzin Ver (Burası olmazsa oyun bozulur!)
+!/ProjectSettings/
+!/Packages/
 
-# --- DİĞER GEÇİCİ DOSYALAR ---
-*.apk
-*.aab
-*.unitypackage
+# 3. Assets Klasörüne Gir...
+!/Assets/
+/Assets/*
+
+# ...Ama Assets içinde SADECE 'General' Klasörüne ve Meta dosyalarına izin ver
+!/Assets/General/
+!/Assets/General/**
+
+# Meta dosyaları Unity için şarttır, onları engelleme
+!*.meta

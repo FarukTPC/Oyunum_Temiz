@@ -33,12 +33,40 @@ public class PlayerMovement : MonoBehaviour
     public float bigWallClimbDuration = 2.5f;
     public float smallClimbDuration = 1.0f;
     
-    [Header("Ladder Settings")]
+    [Header("Ladder System (Realistik)")]
     public float ladderClimbSpeed = 3f; 
-    public float ladderCheckDistance = 0.8f; 
+    public float ladderCheckDistance = 1.0f; 
+    
+    [Tooltip("Karakter merdivenden ne kadar uzakta (derinlikte) dursun?")]
     public float ladderDepthOffset = 0.4f; 
-    public float ladderExitForwardOffset = 1.0f;
-    public float ladderExitCheckOffset = 1.0f;
+
+    [Tooltip("Merdivene tırmanırken karakterin Y açısı kaç olsun?")]
+    public float ladderFaceRotation = 0f;
+    
+    [Header("Ladder Animation & Physics")]
+    public float ladderBottomOnDuration = 1.0f; 
+    public float ladderTopOnDuration = 1.3f; // Biraz arttırdık, sarkma hissi için
+    public float ladderTopOffDuration = 1.3f; // Biraz arttırdık, çıkma ağırlığı için
+
+    [Tooltip("Platforma çıkınca ne kadar ileri gitsin?")]
+    public float ladderExitForwardOffset = 0.6f;
+
+    [Tooltip("Yukarıdan merdivene inmek için ne kadar önden tarasın?")]
+    public float ladderTopCheckOffset = 0.4f; 
+
+    [Header("Movement Curves (ÖNEMLİ: Grafikleri Ayarla)")]
+    [Tooltip("Tepeden Çıkış: Y (Yükselme) Hareketi")]
+    public AnimationCurve topExitYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 1));
+    [Tooltip("Tepeden Çıkış: Z (İleri Gitme) Hareketi")]
+    public AnimationCurve topExitZCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 1));
+    
+    [Tooltip("Tepeden İniş: Sarkma Hareketi (Y)")]
+    public AnimationCurve topEntryYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 1));
+
+    // Animator Trigger İsimleri
+    private string animLadderBottomOn = "LadderBottomOn";
+    private string animLadderTopOn = "LadderTopOn";
+    private string animLadderTopOff = "LadderTopOff";
 
     private bool isClimbingLadder = false;
     private Collider currentLadderCollider;
@@ -81,6 +109,19 @@ public class PlayerMovement : MonoBehaviour
         originalHeight = characterController.height;
         originalCenter = characterController.center;
         crouchCenter = new Vector3(originalCenter.x, originalCenter.y * 0.5f, originalCenter.z);
+
+        // --- VARSAYILAN EĞRİLERİ OLUŞTUR (Eğer boşsa) ---
+        if(topExitYCurve.length == 0 || topExitYCurve.keys[1].value == 0) SetupDefaultCurves();
+    }
+
+    private void SetupDefaultCurves()
+    {
+        // Çıkış (Exit): Önce hızlı yüksel, sonra yavaşça ileri git
+        topExitYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.4f, 0.8f), new Keyframe(1, 1));
+        topExitZCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.4f, 0.1f), new Keyframe(1, 1));
+
+        // İniş (Entry): Önce yavaşça sark, sonra hızlan
+        topEntryYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.5f, 0.3f), new Keyframe(1, 1));
     }
 
     private void Update()
@@ -91,19 +132,14 @@ public class PlayerMovement : MonoBehaviour
             return; 
         }
 
-        // Yer Kontrolü (Ground Check)
         isGrounded = characterController.isGrounded;
         animator.SetBool("IsGrounded", isGrounded);
 
-        // Yerçekimi düzeltmesi (Yerdeyken aşağı kuvvet uygula ki 'isGrounded' titremesin)
         if (isGrounded && velocity.y < 0)
         {
             velocity.y = -2f; 
         }
 
-        // --- DÜZELTME BURADA ---
-        // Sadece hareket edebiliyorsan, F'ye basıyorsan VE YERDEYSEN (isGrounded) çalışır.
-        // Havada zıplarken F'ye basarsan hiçbir şey olmaz.
         if (canMove && Input.GetKeyDown(KeyCode.F) && isGrounded)
         {
             CheckAllInteractions();
@@ -135,11 +171,229 @@ public class PlayerMovement : MonoBehaviour
         CheckInteractable();
     }
 
+    // --- MERDİVEN SİSTEMİ ---
+    private bool CheckLadder()
+    {
+        // 1. AŞAĞIDAN YUKARI
+        Vector3 rayOrigin = transform.position + Vector3.up * 0.8f;
+        RaycastHit hit;
+        Debug.DrawRay(rayOrigin, transform.forward * ladderCheckDistance, Color.cyan, 2f);
+
+        if (Physics.Raycast(rayOrigin, transform.forward, out hit, ladderCheckDistance, ladderLayer))
+        {
+            StartCoroutine(EnterLadderBottomCoroutine(hit.collider, hit.normal));
+            return true;
+        }
+
+        // 2. YUKARIDAN AŞAĞI
+        Vector3 downCheckOrigin = transform.position + (transform.forward * ladderTopCheckOffset) + (Vector3.up * 1.0f);
+        Debug.DrawRay(downCheckOrigin, Vector3.down * 3.0f, Color.yellow, 2f);
+
+        if (Physics.SphereCast(downCheckOrigin, 0.5f, Vector3.down, out hit, 3.0f, ladderLayer))
+        {
+            StartCoroutine(EnterLadderTopCoroutine(hit.collider, hit.transform.forward)); 
+            return true;
+        }
+
+        return false;
+    }
+
+    // --- 1. AŞAĞIDAN GİRİŞ (Düzeltildi) ---
+    private IEnumerator EnterLadderBottomCoroutine(Collider ladderCol, Vector3 hitNormal)
+    {
+        canMove = false;
+        characterController.enabled = false;
+        
+        if (animator != null) animator.SetTrigger(animLadderBottomOn);
+
+        Vector3 startPos = transform.position;
+        Vector3 targetPos = CalculateLadderSnapPosition(ladderCol, hitNormal);
+        
+        float elapsedTime = 0f;
+        while (elapsedTime < ladderBottomOnDuration)
+        {
+            float t = elapsedTime / ladderBottomOnDuration;
+            
+            // "Ease Out" hareketi (Yavaşça dur)
+            float smoothT = Mathf.Sin(t * Mathf.PI * 0.5f);
+            
+            transform.position = Vector3.Lerp(startPos, targetPos, smoothT);
+            elapsedTime += Time.deltaTime;
+            yield return null;
+        }
+
+        transform.position = targetPos;
+        currentLadderCollider = ladderCol;
+        isClimbingLadder = true;
+        characterController.enabled = true;
+        
+        if (animator != null) animator.SetBool("IsClimbing", true);
+    }
+
+    // --- 2. YUKARIDAN GİRİŞ (REALİSTİK SARKMA) ---
+    private IEnumerator EnterLadderTopCoroutine(Collider ladderCol, Vector3 ladderForward)
+    {
+        canMove = false;
+        characterController.enabled = false;
+
+        if (animator != null) animator.SetTrigger(animLadderTopOn);
+
+        transform.rotation = Quaternion.Euler(0, ladderFaceRotation + streetAngle, 0); 
+
+        Vector3 startPos = transform.position;
+        Vector3 finalPos = CalculateLadderSnapPosition(ladderCol, ladderForward);
+        finalPos.y = ladderCol.bounds.max.y - 1.2f; 
+
+        // Platformun kenarında hafif havada başlasın (Ayakları boşluğa gelsin)
+        Vector3 edgePos = startPos + (transform.forward * 0.3f);
+
+        float elapsedTime = 0f;
+        while (elapsedTime < ladderTopOnDuration)
+        {
+            float t = elapsedTime / ladderTopOnDuration;
+            
+            // CURVE KULLANIMI: Y ekseni özel grafiğe göre iner
+            float yProgress = topEntryYCurve.Evaluate(t);
+            float xzProgress = Mathf.SmoothStep(0, 1, t); // Yatayda yumuşak geçiş
+
+            Vector3 currentPos;
+            
+            // Yatayda: Kenardan -> Merdivene
+            currentPos.x = Mathf.Lerp(startPos.x, finalPos.x, xzProgress);
+            currentPos.z = Mathf.Lerp(startPos.z, finalPos.z, xzProgress);
+            
+            // Dikeyde: Kenardan -> Aşağı sark
+            currentPos.y = Mathf.Lerp(startPos.y, finalPos.y, yProgress);
+
+            transform.position = currentPos;
+            elapsedTime += Time.deltaTime;
+            yield return null;
+        }
+
+        transform.position = finalPos;
+        transform.rotation = Quaternion.Euler(0, ladderFaceRotation + streetAngle, 0); 
+        currentLadderCollider = ladderCol;
+        isClimbingLadder = true;
+        characterController.enabled = true;
+
+        if (animator != null) animator.SetBool("IsClimbing", true);
+    }
+
+    // --- 3. TEPEDEN ÇIKIŞ (REALİSTİK VAULT) ---
+    private void ExitLadderTop()
+    {
+        if (!isClimbingLadder) return; 
+        StartCoroutine(ExitLadderTopCoroutine());
+    }
+
+    private IEnumerator ExitLadderTopCoroutine()
+    {
+        isClimbingLadder = false; 
+        canMove = false; 
+        characterController.enabled = false;
+
+        if (animator != null)
+        {
+            animator.SetBool("IsClimbing", false);
+            animator.SetTrigger(animLadderTopOff); 
+        }
+
+        Vector3 startPos = transform.position;
+        
+        Vector3 targetPos = startPos;
+        targetPos.y = currentLadderCollider.bounds.max.y + 0.05f; 
+        targetPos += transform.forward * ladderExitForwardOffset; 
+
+        float elapsedTime = 0f;
+        while (elapsedTime < ladderTopOffDuration)
+        {
+            float t = elapsedTime / ladderTopOffDuration;
+            
+            // --- CURVE SİSTEMİ ---
+            // Y Grafiği: Karakterin yukarı ne zaman çıkacağını belirler.
+            // Z Grafiği: Karakterin ileri ne zaman atılacağını belirler.
+            
+            float yProgress = topExitYCurve.Evaluate(t);
+            float zProgress = topExitZCurve.Evaluate(t);
+
+            Vector3 currentPos;
+            
+            // X: Linear git (Zaten kilitli, fark etmez)
+            currentPos.x = Mathf.Lerp(startPos.x, targetPos.x, zProgress); 
+            
+            // Z: İleri gitme eğrisi
+            currentPos.z = Mathf.Lerp(startPos.z, targetPos.z, zProgress); 
+            
+            // Y: Yükselme eğrisi
+            currentPos.y = Mathf.Lerp(startPos.y, targetPos.y, yProgress); 
+
+            transform.position = currentPos;
+            elapsedTime += Time.deltaTime;
+            yield return null;
+        }
+
+        transform.position = targetPos;
+        characterController.enabled = true;
+        velocity = Vector3.zero;
+        canMove = true;
+        currentLadderCollider = null;
+    }
+
+    // --- HEDEF HESAPLAMA ---
+    private Vector3 CalculateLadderSnapPosition(Collider ladderCol, Vector3 forwardDir)
+    {
+        Vector3 center = ladderCol.bounds.center;
+        Vector3 snapPos = center;
+
+        snapPos.x = center.x; 
+
+        float zDirection = ladderCol.transform.forward.z;
+        if (Mathf.Abs(zDirection) < 0.1f) zDirection = -1f; 
+        zDirection = Mathf.Sign(zDirection);
+
+        snapPos.z = center.z + (zDirection * ladderDepthOffset);
+        snapPos.y = transform.position.y;
+
+        return snapPos;
+    }
+
+    private void HandleLadderMovement()
+    {
+        float inputY = Input.GetAxis("Vertical");
+        if(animator != null) animator.SetFloat("ClimbSpeed", inputY, 0.1f, Time.deltaTime);
+        
+        Vector3 move = Vector3.up * inputY * ladderClimbSpeed * Time.deltaTime;
+        characterController.Move(move);
+
+        float ladderTopY = currentLadderCollider.bounds.max.y;
+        
+        if (inputY > 0 && transform.position.y >= ladderTopY - 1.2f)
+        {
+            ExitLadderTop();
+        }
+
+        if (inputY < 0 && characterController.isGrounded)
+        {
+            isClimbingLadder = false;
+            canMove = true;
+            currentLadderCollider = null;
+            if(animator != null) animator.SetBool("IsClimbing", false);
+        }
+        
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            isClimbingLadder = false;
+            canMove = true;
+            currentLadderCollider = null;
+            if(animator != null) animator.SetBool("IsClimbing", false);
+        }
+    }
+
+    // --- PARKUR (Değişmedi) ---
     private bool CheckParkourAction(LayerMask layer, string triggerName, float duration)
     {
         Vector3 rayOrigin = transform.position + Vector3.up * parkourRayHeight;
         RaycastHit hit;
-
         Debug.DrawRay(rayOrigin, transform.forward * wallCheckDistance, Color.red, 2f);
 
         if (Physics.Raycast(rayOrigin, transform.forward, out hit, wallCheckDistance, layer))
@@ -159,19 +413,8 @@ public class PlayerMovement : MonoBehaviour
     {
         Vector3 highPoint = hitPoint + Vector3.up * 3.0f + transform.forward * 0.2f;
         RaycastHit topHit;
-        
-        Debug.DrawRay(highPoint, Vector3.down * 4.0f, Color.green, 2f);
-
-        if (Physics.Raycast(highPoint, Vector3.down, out topHit, 4.0f, col.gameObject.layer))
-        {
-            return topHit.point;
-        }
-        
-        if (Physics.Raycast(highPoint, Vector3.down, out topHit, 4.0f))
-        {
-             if(topHit.collider == col) return topHit.point;
-        }
-
+        if (Physics.Raycast(highPoint, Vector3.down, out topHit, 4.0f, col.gameObject.layer)) return topHit.point;
+        if (Physics.Raycast(highPoint, Vector3.down, out topHit, 4.0f)) if(topHit.collider == col) return topHit.point;
         return Vector3.zero;
     }
 
@@ -183,90 +426,17 @@ public class PlayerMovement : MonoBehaviour
 
         Vector3 startPos = transform.position;
         float elapsedTime = 0f;
-
         while (elapsedTime < duration)
         {
             float t = elapsedTime / duration;
-            Vector3 currentPos = Vector3.Lerp(startPos, targetPos, t);
-            transform.position = currentPos;
+            transform.position = Vector3.Lerp(startPos, targetPos, t);
             elapsedTime += Time.deltaTime;
             yield return null; 
         }
-
         transform.position = targetPos; 
         characterController.enabled = true; 
         velocity = Vector3.zero;
         canMove = true; 
-    }
-
-    // --- MERDİVEN ---
-    private bool CheckLadder()
-    {
-        Vector3 rayOrigin = transform.position + Vector3.up * 0.8f;
-        Debug.DrawRay(rayOrigin, transform.forward * ladderCheckDistance, Color.cyan, 2f);
-
-        RaycastHit hit;
-        if (Physics.Raycast(rayOrigin, transform.forward, out hit, ladderCheckDistance, ladderLayer))
-        {
-            StartLadderClimbing(hit.collider, hit.normal);
-            return true;
-        }
-        return false;
-    }
-
-    private void StartLadderClimbing(Collider ladderCol, Vector3 hitNormal)
-    {
-        isClimbingLadder = true;
-        currentLadderCollider = ladderCol;
-        canMove = false; 
-        velocity = Vector3.zero; 
-        if(animator != null) animator.SetBool("IsClimbing", true);
-
-        float targetX = ladderCol.bounds.center.x;
-        float targetZ = ladderCol.bounds.center.z + (hitNormal.z * ladderDepthOffset);
-        Vector3 snapPosition = new Vector3(targetX, transform.position.y, targetZ);
-
-        if (Mathf.Abs(hitNormal.x) > 0.5f)
-        {
-            snapPosition.z = ladderCol.bounds.center.z;
-            snapPosition.x = ladderCol.bounds.center.x + (hitNormal.x * ladderDepthOffset);
-        }
-        transform.position = snapPosition;
-    }
-
-    private void HandleLadderMovement()
-    {
-        float inputY = Input.GetAxis("Vertical");
-        if(animator != null) animator.SetFloat("ClimbSpeed", inputY, 0.1f, Time.deltaTime);
-        characterController.Move(Vector3.up * inputY * ladderClimbSpeed * Time.deltaTime);
-
-        float ladderTopY = currentLadderCollider.bounds.max.y;
-        if (inputY > 0 && transform.position.y >= ladderTopY - ladderExitCheckOffset) ExitLadderTop();
-        if (inputY < 0 && characterController.isGrounded) ExitLadderBottom();
-        if (Input.GetKeyDown(KeyCode.F)) ExitLadderBottom();
-    }
-
-    private void ExitLadderTop()
-    {
-        isClimbingLadder = false;
-        if(animator != null) { animator.SetBool("IsClimbing", false); animator.SetFloat("ClimbSpeed", 0f); }
-        Vector3 exitPos = transform.position;
-        exitPos.y = currentLadderCollider.bounds.max.y + 0.2f; 
-        exitPos += transform.forward * ladderExitForwardOffset; 
-        characterController.enabled = false;
-        transform.position = exitPos;
-        characterController.enabled = true;
-        velocity = Vector3.zero;
-        canMove = true;
-        currentLadderCollider = null;
-    }
-
-    private void ExitLadderBottom()
-    {
-        isClimbingLadder = false;
-        if(animator != null) { animator.SetBool("IsClimbing", false); animator.SetFloat("ClimbSpeed", 0f); }
-        canMove = true;
-        currentLadderCollider = null;
     }
 
     private bool CheckInteractable()
@@ -276,11 +446,7 @@ public class PlayerMovement : MonoBehaviour
         if (Physics.Raycast(ray, out hit, interactDistance, interactLayer))
         {
             IInteractable interactable = hit.collider.GetComponent<IInteractable>();
-            if (interactable != null)
-            {
-                interactable.Interact(this);
-                return true; 
-            }
+            if (interactable != null) { interactable.Interact(this); return true; }
         }
         return false;
     }
@@ -291,50 +457,23 @@ public class PlayerMovement : MonoBehaviour
         {
             float input = Input.GetAxis("Horizontal");
             bool isRunning = Input.GetKey(KeyCode.LeftShift);
+            if (Input.GetKeyDown(KeyCode.C)) { isCrouching = !isCrouching; animator.SetBool("IsCrouching", isCrouching); }
 
-            if (Input.GetKeyDown(KeyCode.C))
-            {
-                isCrouching = !isCrouching; 
-                animator.SetBool("IsCrouching", isCrouching);
-            }
-
-            if (isCrouching)
-            {
-                characterController.height = crouchHeight;
-                characterController.center = crouchCenter;
-            }
-            else
-            {
-                characterController.height = originalHeight;
-                characterController.center = originalCenter;
-            }
+            if (isCrouching) { characterController.height = crouchHeight; characterController.center = crouchCenter; }
+            else { characterController.height = originalHeight; characterController.center = originalCenter; }
 
             if (Mathf.Abs(input) >= 0.1f)
             {
-                float currentSpeed = speed; 
-                if (isCrouching) currentSpeed = crouchSpeed; 
-                else if (isRunning) currentSpeed = speed * 3f;
-
+                float currentSpeed = speed * (isCrouching ? crouchSpeed : (isRunning ? 3f : 1f));
                 Vector3 direction = Quaternion.Euler(0, streetAngle, 0) * Vector3.forward;
                 moveDirection = direction * (input > 0 ? 1 : -1) * currentSpeed;
-
                 float lookAngle = input > 0 ? streetAngle : streetAngle + 180f;
                 transform.rotation = Quaternion.Euler(0f, lookAngle, 0f);
+                animator.SetFloat("Speed", isCrouching ? currentSpeed : (isRunning ? 1f : 0.5f), 0.1f, Time.deltaTime);
+            }
+            else { moveDirection = Vector3.zero; animator.SetFloat("Speed", 0f, 0.1f, Time.deltaTime); }
 
-                float animValue = isCrouching ? currentSpeed : (isRunning ? 1f : 0.5f);
-                animator.SetFloat("Speed", animValue, 0.1f, Time.deltaTime);
-            }
-            else
-            {
-                moveDirection = Vector3.zero;
-                animator.SetFloat("Speed", 0f, 0.1f, Time.deltaTime);
-            }
-
-            if (Input.GetButtonDown("Jump") && !isCrouching)
-            {
-                velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-                animator.SetTrigger("Jump");
-            }
+            if (Input.GetButtonDown("Jump") && !isCrouching) { velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity); animator.SetTrigger("Jump"); }
         }
         characterController.Move(moveDirection * Time.deltaTime);
     }

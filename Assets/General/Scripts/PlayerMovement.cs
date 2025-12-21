@@ -11,29 +11,33 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float interactDistance = 1.2f;
     [SerializeField] private LayerMask interactLayer; 
 
-    [Header("Parkour Settings")]
-    [SerializeField] private LayerMask climbLayer; 
-    [SerializeField] private float maxClimbHeight = 2.5f; 
-    [SerializeField] private float climbDuration = 1.2f;
-    
-    [Tooltip("Engel tırmanışı için objeye ne kadar yakın olmalı? (Düşük tutarsan dibine girmen gerekir)")]
-    public float parkourCheckDistance = 1.0f; // <--- YENİ AYAR BURADA (Varsayılan 1 metre)
-
-    [Range(0.1f, 1.0f)] public float verticalClimbPercent = 0.8f;
-    [Range(0.0f, 0.9f)] public float forwardMoveStartPercent = 0.4f;
-    [Range(0.0f, 1.0f)] public float forwardOffset = 0.2f; 
-
-    [Header("Ladder System (Basit & Stabil)")]
+    // --- PARKUR SİSTEMİ ---
+    [Header("Parkour & Climbing Layers")]
+    public LayerMask medWallLayer; 
+    public LayerMask bigWallLayer; 
+    public LayerMask climbableLayer; 
     public LayerMask ladderLayer; 
-    public float ladderClimbSpeed = 3f; 
+
+    [Header("Parkour Animation Triggers")]
+    public string bigWallAnimTrigger = "BigClimb";
+    public string medWallAnimTrigger = "MedClimb";
+    public string smallClimbAnimTrigger = "Climb"; 
+
+    [Header("Parkour Check Settings")]
+    public float parkourRayHeight = 0.2f; 
+    public float wallCheckDistance = 1.0f; 
+    public float landOffset = 0.1f; 
+
+    [Header("Parkour Animation Durations")]
+    public float medWallClimbDuration = 1.5f;
+    public float bigWallClimbDuration = 2.5f;
+    public float smallClimbDuration = 1.0f;
     
-    [Tooltip("Merdivene tırmanırken karakter yüzeyden ne kadar uzakta dursun?")]
+    [Header("Ladder Settings")]
+    public float ladderClimbSpeed = 3f; 
+    public float ladderCheckDistance = 0.8f; 
     public float ladderDepthOffset = 0.4f; 
-
-    [Tooltip("Platforma çıkarken karakter ne kadar ileri ışınlansın?")]
     public float ladderExitForwardOffset = 1.0f;
-
-    [Tooltip("Tepeden kaç metre önce çıkış animasyonu başlasın?")]
     public float ladderExitCheckOffset = 1.0f;
 
     private bool isClimbingLadder = false;
@@ -81,25 +85,28 @@ public class PlayerMovement : MonoBehaviour
 
     private void Update()
     {
-        // 1. Önce Merdiven Durumunu Kontrol Et
         if (isClimbingLadder)
         {
             HandleLadderMovement();
             return; 
         }
 
+        // Yer Kontrolü (Ground Check)
         isGrounded = characterController.isGrounded;
         animator.SetBool("IsGrounded", isGrounded);
 
+        // Yerçekimi düzeltmesi (Yerdeyken aşağı kuvvet uygula ki 'isGrounded' titremesin)
         if (isGrounded && velocity.y < 0)
         {
             velocity.y = -2f; 
         }
 
-        // 2. Etkileşim Tuşu (F)
-        if (canMove && Input.GetKeyDown(KeyCode.F))
+        // --- DÜZELTME BURADA ---
+        // Sadece hareket edebiliyorsan, F'ye basıyorsan VE YERDEYSEN (isGrounded) çalışır.
+        // Havada zıplarken F'ye basarsan hiçbir şey olmaz.
+        if (canMove && Input.GetKeyDown(KeyCode.F) && isGrounded)
         {
-            CheckInteractions();
+            CheckAllInteractions();
         }
 
         if (canMove)
@@ -117,25 +124,89 @@ public class PlayerMovement : MonoBehaviour
 
     #endregion
 
-    #region Custom Functions
+    #region Interaction Logic
 
-    private void CheckInteractions()
+    private void CheckAllInteractions()
     {
-        // Sıralama: Merdiven -> Etkileşim -> Parkur
-        if (CheckForLadder()) return;
-        
-        if (CheckForInteractable()) return;
-        
-        CheckForParkour();
+        if (CheckLadder()) return;
+        if (CheckParkourAction(bigWallLayer, bigWallAnimTrigger, bigWallClimbDuration)) return;
+        if (CheckParkourAction(medWallLayer, medWallAnimTrigger, medWallClimbDuration)) return;
+        if (CheckParkourAction(climbableLayer, smallClimbAnimTrigger, smallClimbDuration)) return;
+        CheckInteractable();
     }
 
-    // --- BASİT RAYCAST İLE MERDİVEN KONTROLÜ ---
-    private bool CheckForLadder()
+    private bool CheckParkourAction(LayerMask layer, string triggerName, float duration)
     {
-        Ray ray = new Ray(transform.position + Vector3.up * 0.8f, transform.forward);
+        Vector3 rayOrigin = transform.position + Vector3.up * parkourRayHeight;
         RaycastHit hit;
 
-        if (Physics.Raycast(ray, out hit, interactDistance, ladderLayer))
+        Debug.DrawRay(rayOrigin, transform.forward * wallCheckDistance, Color.red, 2f);
+
+        if (Physics.Raycast(rayOrigin, transform.forward, out hit, wallCheckDistance, layer))
+        {
+            Vector3 topPosition = FindTopPoint(hit.collider, hit.point);
+            if (topPosition == Vector3.zero) 
+                topPosition = new Vector3(hit.point.x, hit.collider.bounds.max.y, hit.point.z);
+
+            Vector3 targetPos = topPosition + (transform.forward * landOffset); 
+            StartCoroutine(PerformParkourMove(targetPos, duration, triggerName));
+            return true;
+        }
+        return false;
+    }
+
+    private Vector3 FindTopPoint(Collider col, Vector3 hitPoint)
+    {
+        Vector3 highPoint = hitPoint + Vector3.up * 3.0f + transform.forward * 0.2f;
+        RaycastHit topHit;
+        
+        Debug.DrawRay(highPoint, Vector3.down * 4.0f, Color.green, 2f);
+
+        if (Physics.Raycast(highPoint, Vector3.down, out topHit, 4.0f, col.gameObject.layer))
+        {
+            return topHit.point;
+        }
+        
+        if (Physics.Raycast(highPoint, Vector3.down, out topHit, 4.0f))
+        {
+             if(topHit.collider == col) return topHit.point;
+        }
+
+        return Vector3.zero;
+    }
+
+    private IEnumerator PerformParkourMove(Vector3 targetPos, float duration, string animTrigger)
+    {
+        canMove = false; 
+        characterController.enabled = false; 
+        if(animator != null) animator.SetTrigger(animTrigger);
+
+        Vector3 startPos = transform.position;
+        float elapsedTime = 0f;
+
+        while (elapsedTime < duration)
+        {
+            float t = elapsedTime / duration;
+            Vector3 currentPos = Vector3.Lerp(startPos, targetPos, t);
+            transform.position = currentPos;
+            elapsedTime += Time.deltaTime;
+            yield return null; 
+        }
+
+        transform.position = targetPos; 
+        characterController.enabled = true; 
+        velocity = Vector3.zero;
+        canMove = true; 
+    }
+
+    // --- MERDİVEN ---
+    private bool CheckLadder()
+    {
+        Vector3 rayOrigin = transform.position + Vector3.up * 0.8f;
+        Debug.DrawRay(rayOrigin, transform.forward * ladderCheckDistance, Color.cyan, 2f);
+
+        RaycastHit hit;
+        if (Physics.Raycast(rayOrigin, transform.forward, out hit, ladderCheckDistance, ladderLayer))
         {
             StartLadderClimbing(hit.collider, hit.normal);
             return true;
@@ -147,74 +218,44 @@ public class PlayerMovement : MonoBehaviour
     {
         isClimbingLadder = true;
         currentLadderCollider = ladderCol;
-        
         canMove = false; 
         velocity = Vector3.zero; 
-
         if(animator != null) animator.SetBool("IsClimbing", true);
 
-        // --- KONUMLANDIRMA ---
         float targetX = ladderCol.bounds.center.x;
         float targetZ = ladderCol.bounds.center.z + (hitNormal.z * ladderDepthOffset);
         Vector3 snapPosition = new Vector3(targetX, transform.position.y, targetZ);
 
-        // 2.5D Koruma
         if (Mathf.Abs(hitNormal.x) > 0.5f)
         {
             snapPosition.z = ladderCol.bounds.center.z;
             snapPosition.x = ladderCol.bounds.center.x + (hitNormal.x * ladderDepthOffset);
         }
-
         transform.position = snapPosition;
     }
 
     private void HandleLadderMovement()
     {
         float inputY = Input.GetAxis("Vertical");
+        if(animator != null) animator.SetFloat("ClimbSpeed", inputY, 0.1f, Time.deltaTime);
+        characterController.Move(Vector3.up * inputY * ladderClimbSpeed * Time.deltaTime);
 
-        if(animator != null)
-        {
-            animator.SetFloat("ClimbSpeed", inputY, 0.1f, Time.deltaTime);
-        }
-
-        Vector3 climbVelocity = Vector3.up * inputY * ladderClimbSpeed;
-        characterController.Move(climbVelocity * Time.deltaTime);
-
-        // --- ÇIKIŞ KONTROLLERİ ---
         float ladderTopY = currentLadderCollider.bounds.max.y;
-        if (inputY > 0 && transform.position.y >= ladderTopY - ladderExitCheckOffset)
-        {
-            ExitLadderTop();
-        }
-
-        if (inputY < 0 && characterController.isGrounded)
-        {
-            ExitLadderBottom();
-        }
-        
-        if (Input.GetKeyDown(KeyCode.F))
-        {
-            ExitLadderBottom();
-        }
+        if (inputY > 0 && transform.position.y >= ladderTopY - ladderExitCheckOffset) ExitLadderTop();
+        if (inputY < 0 && characterController.isGrounded) ExitLadderBottom();
+        if (Input.GetKeyDown(KeyCode.F)) ExitLadderBottom();
     }
 
     private void ExitLadderTop()
     {
         isClimbingLadder = false;
-        if(animator != null) 
-        {
-            animator.SetBool("IsClimbing", false);
-            animator.SetFloat("ClimbSpeed", 0f); 
-        }
-        
+        if(animator != null) { animator.SetBool("IsClimbing", false); animator.SetFloat("ClimbSpeed", 0f); }
         Vector3 exitPos = transform.position;
         exitPos.y = currentLadderCollider.bounds.max.y + 0.2f; 
         exitPos += transform.forward * ladderExitForwardOffset; 
-
         characterController.enabled = false;
         transform.position = exitPos;
         characterController.enabled = true;
-
         velocity = Vector3.zero;
         canMove = true;
         currentLadderCollider = null;
@@ -223,18 +264,12 @@ public class PlayerMovement : MonoBehaviour
     private void ExitLadderBottom()
     {
         isClimbingLadder = false;
-        if(animator != null) 
-        {
-            animator.SetBool("IsClimbing", false);
-            animator.SetFloat("ClimbSpeed", 0f);
-        }
+        if(animator != null) { animator.SetBool("IsClimbing", false); animator.SetFloat("ClimbSpeed", 0f); }
         canMove = true;
         currentLadderCollider = null;
     }
 
-    // --- DİĞER KODLAR ---
-
-    private bool CheckForInteractable()
+    private bool CheckInteractable()
     {
         Ray ray = new Ray(transform.position + Vector3.up * 1.0f, transform.forward);
         RaycastHit hit;
@@ -248,64 +283,6 @@ public class PlayerMovement : MonoBehaviour
             }
         }
         return false;
-    }
-
-    private void CheckForParkour()
-    {
-        Vector3 rayOrigin = transform.position + Vector3.up * 0.2f; // Ayak bileği hizası
-        RaycastHit wallHit;
-
-        // BURADAKİ '2.5f' SABİTİNİ 'parkourCheckDistance' İLE DEĞİŞTİRDİK
-        if (Physics.Raycast(rayOrigin, transform.forward, out wallHit, parkourCheckDistance, climbLayer))
-        {
-            Vector3 topRayOrigin = wallHit.point + (Vector3.up * maxClimbHeight) + (transform.forward * 0.5f);
-            RaycastHit topHit;
-            
-            // Yukarıdan aşağıya tarama (Platform üstünü bulmak için)
-            if (Physics.Raycast(topRayOrigin, Vector3.down, out topHit, maxClimbHeight + 0.5f, climbLayer))
-            {
-                Vector3 finalTargetPoint = new Vector3(wallHit.point.x, topHit.point.y, wallHit.point.z);
-                finalTargetPoint += transform.forward * forwardOffset; 
-                StartCoroutine(PerformDynamicClimb(finalTargetPoint));
-            }
-        }
-    }
-
-    private IEnumerator PerformDynamicClimb(Vector3 targetPoint)
-    {
-        canMove = false; 
-        characterController.enabled = false; 
-        if(animator != null) animator.SetTrigger("Climb");
-
-        Vector3 startPos = transform.position;
-        
-        // Tırmanırken hedefe dönük kal (2.5D için önemli değil ama düzgün dursun)
-        Vector3 lookPos = targetPoint;
-        lookPos.y = transform.position.y; 
-        // transform.LookAt(lookPos); // 2.5D'de dönüşü bozabilir diye kapattım, istersen açabilirsin.
-
-        float elapsedTime = 0f;
-        while (elapsedTime < climbDuration)
-        {
-            float t = elapsedTime / climbDuration;
-            float yRatio = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / verticalClimbPercent));
-            float forwardDuration = 1.0f - forwardMoveStartPercent;
-            if (forwardDuration < 0.01f) forwardDuration = 0.01f;
-            float xzRatio = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((t - forwardMoveStartPercent) / forwardDuration));
-
-            float currentY = Mathf.Lerp(startPos.y, targetPoint.y, yRatio);
-            Vector3 currentXZ = Vector3.Lerp(new Vector3(startPos.x, 0, startPos.z), new Vector3(targetPoint.x, 0, targetPoint.z), xzRatio);
-            transform.position = new Vector3(currentXZ.x, currentY, currentXZ.z);
-
-            elapsedTime += Time.deltaTime;
-            yield return null; 
-        }
-
-        transform.position = targetPoint; 
-        characterController.enabled = true; 
-        velocity = Vector3.zero;
-        yield return null; 
-        canMove = true; 
     }
 
     private void HandleMovement()

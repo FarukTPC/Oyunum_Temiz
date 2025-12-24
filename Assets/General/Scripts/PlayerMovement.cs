@@ -6,6 +6,8 @@ public class PlayerMovement : MonoBehaviour
 {
     #region Variables
 
+    [HideInInspector] public bool preventRunning = false;
+
     [Header("Interaction")]
     public bool canMove = true; 
     [SerializeField] private float interactDistance = 1.2f;
@@ -135,6 +137,27 @@ public class PlayerMovement : MonoBehaviour
             return; 
         }
 
+        // --- HAREKET KİLİDİ VE HARD STOP ---
+        // Eğer hareket iznimiz yoksa (Saldırıyorsak, blokluyorsak vs.)
+        if (!canMove)
+        {
+            // Animator'ı anında durdur
+            animator.SetFloat("Speed", 0f);
+            
+            // Yerçekimi hariç tüm hızı öldür (KAYMAYI ÖNLER)
+            velocity.x = 0;
+            velocity.z = 0;
+            
+            // Sadece yerçekimi uygula (havada asılı kalmasın diye)
+            isGrounded = characterController.isGrounded;
+            if (isGrounded && velocity.y < 0) velocity.y = -2f;
+            velocity.y += gravity * Time.deltaTime;
+            characterController.Move(velocity * Time.deltaTime);
+
+            // Başka hiçbir işlem yapma ve çık
+            return; 
+        }
+
         isGrounded = characterController.isGrounded;
         animator.SetBool("IsGrounded", isGrounded);
 
@@ -148,17 +171,10 @@ public class PlayerMovement : MonoBehaviour
             CheckAllInteractions();
         }
 
-        if (canMove)
-        {
-            HandleMovement();
-            velocity.y += gravity * Time.deltaTime;
-            characterController.Move(velocity * Time.deltaTime);
-        }
-        else
-        {
-            animator.SetFloat("Speed", 0f);
-            moveDirection = Vector3.zero;
-        }
+        // Hareket izni varsa normal işlemlere devam et
+        HandleMovement();
+        velocity.y += gravity * Time.deltaTime;
+        characterController.Move(velocity * Time.deltaTime);
     }
 
     #endregion
@@ -424,18 +440,12 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleMovement()
     {
-
-        if (!canMove) 
-    {
-        moveDirection = Vector3.zero;
-        animator.SetFloat("Speed", 0f);
-        return; 
-    }
-    
+        // Ekstra güvenlik için buraya da kontrol ekleyebiliriz ama 
+        // yukarıdaki Update modifikasyonu zaten buraya girmesini engelliyor.
         if (isGrounded)
         {
             float input = Input.GetAxis("Horizontal");
-            bool isRunning = Input.GetKey(KeyCode.LeftShift);
+            bool isRunning = Input.GetKey(KeyCode.LeftShift) && !preventRunning;
             
             if (Input.GetKeyDown(KeyCode.C)) { isCrouching = !isCrouching; animator.SetBool("IsCrouching", isCrouching); }
 
@@ -458,18 +468,18 @@ public class PlayerMovement : MonoBehaviour
         characterController.Move(moveDirection * Time.deltaTime);
     }
 
-public void InstantStop()
-{
-    // 1. Yönü ve Hızı tamamen öldür
-    moveDirection = Vector3.zero;
-    velocity = new Vector3(0, velocity.y, 0); 
-    
-    // 2. Animasyon hızını anında kes
-    if (animator != null)
+    public void InstantStop()
     {
-        animator.SetFloat("Speed", 0f);
+        // 1. Yönü ve Hızı tamamen öldür
+        moveDirection = Vector3.zero;
+        velocity = new Vector3(0, velocity.y, 0); 
+        
+        // 2. Animasyon hızını anında kes
+        if (animator != null)
+        {
+            animator.SetFloat("Speed", 0f);
+        }
     }
-}
 
     #endregion
 }

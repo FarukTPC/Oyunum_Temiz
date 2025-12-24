@@ -18,10 +18,17 @@ public class CombatSystem : MonoBehaviour
         public string animTrigger;      
         
         [Tooltip("Animasyon başladıktan kaç saniye sonra hasar işlesin?")]
-        public float hitTime = 0.4f;    // Vuruşun temas anı
+        public float hitTime = 0.4f;
 
-        [Tooltip("Bu saldırının toplam süresi ne kadar? (Bu süre bitmeden yeni saldırı yapılamaz)")]
-        public float totalDuration = 1.0f; // Kilitlenme süresi
+        [Tooltip("Bu saldırının toplam süresi ne kadar?")]
+        public float totalDuration = 1.0f;
+
+        [Header("Hareket Ayarları")]
+        [Tooltip("Saldırı sırasında karakter tamamen dursun mu? (Uppercut/Tekme için TRUE yap)")]
+        public bool stopMovement = true;
+
+        [Tooltip("Saldırı sırasında karakter yürüyebilsin ama KOŞAMASIN. (Yumruklar için TRUE yap)")]
+        public bool forceWalk = false; // <--- YENİ ÖZELLİK
 
         [Header("Menzil")]
         public float attackRange = 1.5f; 
@@ -29,8 +36,6 @@ public class CombatSystem : MonoBehaviour
         
         [Tooltip("Kombo sıfırlanma toleransı")]
         public float comboResetTime = 0.8f; 
-        
-        public bool stopMovement = true;
     }
 
     [System.Serializable]
@@ -69,9 +74,8 @@ public class CombatSystem : MonoBehaviour
     public LayerMask enemyLayer; 
     public Transform hitPoint;   
 
-    // Durumlar
     private bool isBlocking = false;
-    private bool isAttacking = false; // BU ARTIK KRİTİK KİLİT NOKTASI
+    private bool isAttacking = false;
     private PlayerMovement playerMovement;
     private Animator animator;
 
@@ -96,10 +100,7 @@ public class CombatSystem : MonoBehaviour
     private void Update()
     {
         HandleBlocking();
-        
-        // Eğer blokluyorsa veya ZATEN SALDIRIYORSA hiçbir tuşa basamaz.
         if (isBlocking || isAttacking) return;
-
         HandleAttacks();
     }
 
@@ -109,13 +110,14 @@ public class CombatSystem : MonoBehaviour
 
     private void HandleBlocking()
     {
-        if (isAttacking) return; // Saldırırken blok yapamazsın
+        if (isAttacking) return;
 
         if (Input.GetMouseButton(1))
         {
             isBlocking = true;
             animator.SetBool(blockAnimBool, true);
             playerMovement.canMove = false; 
+            playerMovement.InstantStop(); // Blok açınca da zınk diye dursun
         }
         else if (Input.GetMouseButtonUp(1))
         {
@@ -127,13 +129,11 @@ public class CombatSystem : MonoBehaviour
 
     private void HandleAttacks()
     {
-        // Kombo zaman aşımı
         if (Time.time - lastAttackTime > GetCurrentComboResetTime())
         {
             currentComboIndex = 0;
         }
 
-        // --- SOL TIK ---
         if (Input.GetMouseButtonDown(0))
         {
             bool specialTriggered = false;
@@ -142,8 +142,7 @@ public class CombatSystem : MonoBehaviour
                 if (Input.GetKey(special.modifierKey))
                 {
                     StartCoroutine(PerformAttackRoutine(special));
-                    specialTriggered = true;
-                    break; 
+                    return; 
                 }
             }
 
@@ -154,50 +153,61 @@ public class CombatSystem : MonoBehaviour
                     StartCoroutine(PerformAttackRoutine(punchComboList[currentComboIndex]));
                     currentComboIndex++;
                     if (currentComboIndex >= punchComboList.Count) currentComboIndex = 0;
+                    return; 
                 }
             }
         }
 
-        // --- DİĞER AKSİYONLAR (Tekme) ---
         if (Input.GetKeyDown(kickAttack.triggerKey))
         {
             StartCoroutine(PerformAttackRoutine(kickAttack));
+            return;
         }
     }
 
-// CombatSystem.cs içindeki PerformAttackRoutine fonksiyonunu bununla değiştir:
-
-private IEnumerator PerformAttackRoutine(AttackData attack)
-{
-    // --- BURASI DEĞİŞTİ ---
-    // 1. Kilidi Vur ve ANINDA DURDUR
-    isAttacking = true; 
-    
-    if (attack.stopMovement) 
+    private IEnumerator PerformAttackRoutine(AttackData attack)
     {
-        playerMovement.InstantStop(); // <--- YENİ EKLEDİĞİMİZ FREN KODU
-        playerMovement.canMove = false;
+        // 1. Hareket Kısıtlamalarını Uygula
+        if (attack.stopMovement) 
+        {
+            // Tamamen durdur (Uppercut / Tekme)
+            playerMovement.canMove = false;
+            playerMovement.InstantStop();
+        }
+        else if (attack.forceWalk)
+        {
+            // Sadece yürümeye zorla (Yumruk)
+            playerMovement.preventRunning = true;
+        }
+
+        // 2. Input KİLİTLENSİN
+        isAttacking = true; 
+
+        // 3. Animasyon
+        animator.SetTrigger(attack.animTrigger);
+        lastAttackTime = Time.time;
+
+        // 4. Vuruş Bekle
+        yield return new WaitForSeconds(attack.hitTime);
+
+        // 5. Hasar Ver
+        CheckHit(attack);
+
+        // --- INPUT KİLİDİNİ AÇ (Kombo için) ---
+        isAttacking = false; 
+
+        // 6. Animasyonun Geri Kalanını Bekle (Kısıtlamalar Devam Ediyor)
+        float remainingTime = attack.totalDuration - attack.hitTime;
+        if (remainingTime > 0) yield return new WaitForSeconds(remainingTime);
+
+        // 7. Kısıtlamaları Kaldır
+        // Eğer oyuncu bu arada yeni bir saldırıya başlamadıysa (Kombo yapmadıysa)
+        if (!isAttacking && !isBlocking) 
+        {
+            playerMovement.canMove = true;
+            playerMovement.preventRunning = false; // Koşma yasağını kaldır
+        }
     }
-    // ----------------------
-
-    // 2. Animasyonu Başlat
-    animator.SetTrigger(attack.animTrigger);
-    lastAttackTime = Time.time;
-
-    // 3. Vuruş Anına Kadar Bekle
-    yield return new WaitForSeconds(attack.hitTime);
-
-    // 4. Hasar Ver
-    CheckHit(attack);
-
-    // 5. Animasyonun Geri Kalanını Bekle
-    float remainingTime = attack.totalDuration - attack.hitTime;
-    if (remainingTime > 0) yield return new WaitForSeconds(remainingTime);
-
-    // 6. Kilidi Aç
-    isAttacking = false;
-    if (!isBlocking) playerMovement.canMove = true;
-}
 
     private void CheckHit(AttackData attack)
     {

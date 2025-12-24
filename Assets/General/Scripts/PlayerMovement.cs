@@ -45,8 +45,10 @@ public class PlayerMovement : MonoBehaviour
     
     [Header("Ladder Animation & Physics")]
     public float ladderBottomOnDuration = 1.0f; 
-    public float ladderTopOnDuration = 1.3f; // Biraz arttırdık, sarkma hissi için
-    public float ladderTopOffDuration = 1.3f; // Biraz arttırdık, çıkma ağırlığı için
+    public float ladderTopOnDuration = 1.3f; 
+    
+    [Tooltip("Çıkış animasyonu süresi (Kısa kalırsa snap olur, biraz artırdık)")]
+    public float ladderTopOffDuration = 1.6f; 
 
     [Tooltip("Platforma çıkınca ne kadar ileri gitsin?")]
     public float ladderExitForwardOffset = 0.6f;
@@ -54,14 +56,10 @@ public class PlayerMovement : MonoBehaviour
     [Tooltip("Yukarıdan merdivene inmek için ne kadar önden tarasın?")]
     public float ladderTopCheckOffset = 0.4f; 
 
-    [Header("Movement Curves (ÖNEMLİ: Grafikleri Ayarla)")]
-    [Tooltip("Tepeden Çıkış: Y (Yükselme) Hareketi")]
-    public AnimationCurve topExitYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 1));
-    [Tooltip("Tepeden Çıkış: Z (İleri Gitme) Hareketi")]
-    public AnimationCurve topExitZCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 1));
-    
-    [Tooltip("Tepeden İniş: Sarkma Hareketi (Y)")]
-    public AnimationCurve topEntryYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 1));
+    [Header("Movement Curves (Koddan Otomatik Ayarlanır)")]
+    public AnimationCurve topExitYCurve; // Yükselme
+    public AnimationCurve topExitZCurve; // İlerleme
+    public AnimationCurve topEntryYCurve; // İniş
 
     // Animator Trigger İsimleri
     private string animLadderBottomOn = "LadderBottomOn";
@@ -75,8 +73,7 @@ public class PlayerMovement : MonoBehaviour
     public float speed = 4f; 
     [Range(0, 360)] public float streetAngle = 0f; 
 
-    [Header("Jump Settings")]
-    public float jumpHeight = 1.2f; 
+    // NOT: Zıplama Ayarları Kaldırıldı.
 
     [Header("Crouch Settings")]
     public float crouchHeight = 1.0f; 
@@ -110,17 +107,23 @@ public class PlayerMovement : MonoBehaviour
         originalCenter = characterController.center;
         crouchCenter = new Vector3(originalCenter.x, originalCenter.y * 0.5f, originalCenter.z);
 
-        // --- VARSAYILAN EĞRİLERİ OLUŞTUR (Eğer boşsa) ---
-        if(topExitYCurve.length == 0 || topExitYCurve.keys[1].value == 0) SetupDefaultCurves();
+        // Curve'leri başlat
+        SetupDefaultCurves();
     }
 
     private void SetupDefaultCurves()
     {
-        // Çıkış (Exit): Önce hızlı yüksel, sonra yavaşça ileri git
-        topExitYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.4f, 0.8f), new Keyframe(1, 1));
-        topExitZCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.4f, 0.1f), new Keyframe(1, 1));
+        // --- MERDİVEN DÜZELTMESİ: L ŞEKLİNDE HAREKET ---
+        
+        // Y Eğrisi (Yükselme): Hızlıca yüksel (Ayaklar yere takılmasın)
+        // Animasyonun %50'sinde yüksekliğin %95'ine ulaş.
+        topExitYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.5f, 0.95f), new Keyframe(1, 1));
 
-        // İniş (Entry): Önce yavaşça sark, sonra hızlan
+        // Z Eğrisi (İlerleme): Yükselme bitene kadar bekle.
+        // Animasyonun %50'sine kadar neredeyse hiç ileri gitme (%10). Sonra git.
+        topExitZCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.5f, 0.1f), new Keyframe(1, 1));
+
+        // İniş (Entry): Standart
         topEntryYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.5f, 0.3f), new Keyframe(1, 1));
     }
 
@@ -174,21 +177,16 @@ public class PlayerMovement : MonoBehaviour
     // --- MERDİVEN SİSTEMİ ---
     private bool CheckLadder()
     {
-        // 1. AŞAĞIDAN YUKARI
         Vector3 rayOrigin = transform.position + Vector3.up * 0.8f;
         RaycastHit hit;
-        Debug.DrawRay(rayOrigin, transform.forward * ladderCheckDistance, Color.cyan, 2f);
-
+        
         if (Physics.Raycast(rayOrigin, transform.forward, out hit, ladderCheckDistance, ladderLayer))
         {
             StartCoroutine(EnterLadderBottomCoroutine(hit.collider, hit.normal));
             return true;
         }
 
-        // 2. YUKARIDAN AŞAĞI
         Vector3 downCheckOrigin = transform.position + (transform.forward * ladderTopCheckOffset) + (Vector3.up * 1.0f);
-        Debug.DrawRay(downCheckOrigin, Vector3.down * 3.0f, Color.yellow, 2f);
-
         if (Physics.SphereCast(downCheckOrigin, 0.5f, Vector3.down, out hit, 3.0f, ladderLayer))
         {
             StartCoroutine(EnterLadderTopCoroutine(hit.collider, hit.transform.forward)); 
@@ -198,7 +196,6 @@ public class PlayerMovement : MonoBehaviour
         return false;
     }
 
-    // --- 1. AŞAĞIDAN GİRİŞ (Düzeltildi) ---
     private IEnumerator EnterLadderBottomCoroutine(Collider ladderCol, Vector3 hitNormal)
     {
         canMove = false;
@@ -212,12 +209,8 @@ public class PlayerMovement : MonoBehaviour
         float elapsedTime = 0f;
         while (elapsedTime < ladderBottomOnDuration)
         {
-            float t = elapsedTime / ladderBottomOnDuration;
-            
-            // "Ease Out" hareketi (Yavaşça dur)
-            float smoothT = Mathf.Sin(t * Mathf.PI * 0.5f);
-            
-            transform.position = Vector3.Lerp(startPos, targetPos, smoothT);
+            float t = Mathf.Sin((elapsedTime / ladderBottomOnDuration) * Mathf.PI * 0.5f);
+            transform.position = Vector3.Lerp(startPos, targetPos, t);
             elapsedTime += Time.deltaTime;
             yield return null;
         }
@@ -230,7 +223,6 @@ public class PlayerMovement : MonoBehaviour
         if (animator != null) animator.SetBool("IsClimbing", true);
     }
 
-    // --- 2. YUKARIDAN GİRİŞ (REALİSTİK SARKMA) ---
     private IEnumerator EnterLadderTopCoroutine(Collider ladderCol, Vector3 ladderForward)
     {
         canMove = false;
@@ -244,25 +236,17 @@ public class PlayerMovement : MonoBehaviour
         Vector3 finalPos = CalculateLadderSnapPosition(ladderCol, ladderForward);
         finalPos.y = ladderCol.bounds.max.y - 1.2f; 
 
-        // Platformun kenarında hafif havada başlasın (Ayakları boşluğa gelsin)
-        Vector3 edgePos = startPos + (transform.forward * 0.3f);
-
         float elapsedTime = 0f;
         while (elapsedTime < ladderTopOnDuration)
         {
             float t = elapsedTime / ladderTopOnDuration;
             
-            // CURVE KULLANIMI: Y ekseni özel grafiğe göre iner
             float yProgress = topEntryYCurve.Evaluate(t);
-            float xzProgress = Mathf.SmoothStep(0, 1, t); // Yatayda yumuşak geçiş
+            float xzProgress = Mathf.SmoothStep(0, 1, t);
 
             Vector3 currentPos;
-            
-            // Yatayda: Kenardan -> Merdivene
             currentPos.x = Mathf.Lerp(startPos.x, finalPos.x, xzProgress);
             currentPos.z = Mathf.Lerp(startPos.z, finalPos.z, xzProgress);
-            
-            // Dikeyde: Kenardan -> Aşağı sark
             currentPos.y = Mathf.Lerp(startPos.y, finalPos.y, yProgress);
 
             transform.position = currentPos;
@@ -279,7 +263,6 @@ public class PlayerMovement : MonoBehaviour
         if (animator != null) animator.SetBool("IsClimbing", true);
     }
 
-    // --- 3. TEPEDEN ÇIKIŞ (REALİSTİK VAULT) ---
     private void ExitLadderTop()
     {
         if (!isClimbingLadder) return; 
@@ -299,7 +282,6 @@ public class PlayerMovement : MonoBehaviour
         }
 
         Vector3 startPos = transform.position;
-        
         Vector3 targetPos = startPos;
         targetPos.y = currentLadderCollider.bounds.max.y + 0.05f; 
         targetPos += transform.forward * ladderExitForwardOffset; 
@@ -309,22 +291,13 @@ public class PlayerMovement : MonoBehaviour
         {
             float t = elapsedTime / ladderTopOffDuration;
             
-            // --- CURVE SİSTEMİ ---
-            // Y Grafiği: Karakterin yukarı ne zaman çıkacağını belirler.
-            // Z Grafiği: Karakterin ileri ne zaman atılacağını belirler.
-            
+            // --- EĞRİLER DEVREDE ---
             float yProgress = topExitYCurve.Evaluate(t);
             float zProgress = topExitZCurve.Evaluate(t);
 
             Vector3 currentPos;
-            
-            // X: Linear git (Zaten kilitli, fark etmez)
             currentPos.x = Mathf.Lerp(startPos.x, targetPos.x, zProgress); 
-            
-            // Z: İleri gitme eğrisi
             currentPos.z = Mathf.Lerp(startPos.z, targetPos.z, zProgress); 
-            
-            // Y: Yükselme eğrisi
             currentPos.y = Mathf.Lerp(startPos.y, targetPos.y, yProgress); 
 
             transform.position = currentPos;
@@ -339,12 +312,10 @@ public class PlayerMovement : MonoBehaviour
         currentLadderCollider = null;
     }
 
-    // --- HEDEF HESAPLAMA ---
     private Vector3 CalculateLadderSnapPosition(Collider ladderCol, Vector3 forwardDir)
     {
         Vector3 center = ladderCol.bounds.center;
         Vector3 snapPos = center;
-
         snapPos.x = center.x; 
 
         float zDirection = ladderCol.transform.forward.z;
@@ -365,9 +336,10 @@ public class PlayerMovement : MonoBehaviour
         Vector3 move = Vector3.up * inputY * ladderClimbSpeed * Time.deltaTime;
         characterController.Move(move);
 
-        float ladderTopY = currentLadderCollider.bounds.max.y;
-        
-        if (inputY > 0 && transform.position.y >= ladderTopY - 1.2f)
+        // --- TETİKLEME YÜKSEKLİĞİ ---
+        float exitThreshold = currentLadderCollider.bounds.max.y - 1.0f;
+
+        if (inputY > 0 && transform.position.y >= exitThreshold)
         {
             ExitLadderTop();
         }
@@ -389,13 +361,11 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    // --- PARKUR (Değişmedi) ---
+    // --- PARKUR SİSTEMİ ---
     private bool CheckParkourAction(LayerMask layer, string triggerName, float duration)
     {
         Vector3 rayOrigin = transform.position + Vector3.up * parkourRayHeight;
         RaycastHit hit;
-        Debug.DrawRay(rayOrigin, transform.forward * wallCheckDistance, Color.red, 2f);
-
         if (Physics.Raycast(rayOrigin, transform.forward, out hit, wallCheckDistance, layer))
         {
             Vector3 topPosition = FindTopPoint(hit.collider, hit.point);
@@ -439,6 +409,7 @@ public class PlayerMovement : MonoBehaviour
         canMove = true; 
     }
 
+    // --- GENEL HAREKET ---
     private bool CheckInteractable()
     {
         Ray ray = new Ray(transform.position + Vector3.up * 1.0f, transform.forward);
@@ -453,10 +424,19 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleMovement()
     {
+
+        if (!canMove) 
+    {
+        moveDirection = Vector3.zero;
+        animator.SetFloat("Speed", 0f);
+        return; 
+    }
+    
         if (isGrounded)
         {
             float input = Input.GetAxis("Horizontal");
             bool isRunning = Input.GetKey(KeyCode.LeftShift);
+            
             if (Input.GetKeyDown(KeyCode.C)) { isCrouching = !isCrouching; animator.SetBool("IsCrouching", isCrouching); }
 
             if (isCrouching) { characterController.height = crouchHeight; characterController.center = crouchCenter; }
@@ -473,10 +453,23 @@ public class PlayerMovement : MonoBehaviour
             }
             else { moveDirection = Vector3.zero; animator.SetFloat("Speed", 0f, 0.1f, Time.deltaTime); }
 
-            if (Input.GetButtonDown("Jump") && !isCrouching) { velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity); animator.SetTrigger("Jump"); }
+            // Zıplama bloğu kaldırıldı.
         }
         characterController.Move(moveDirection * Time.deltaTime);
     }
+
+public void InstantStop()
+{
+    // 1. Yönü ve Hızı tamamen öldür
+    moveDirection = Vector3.zero;
+    velocity = new Vector3(0, velocity.y, 0); 
+    
+    // 2. Animasyon hızını anında kes
+    if (animator != null)
+    {
+        animator.SetFloat("Speed", 0f);
+    }
+}
 
     #endregion
 }

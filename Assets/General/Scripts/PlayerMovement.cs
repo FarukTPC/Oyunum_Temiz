@@ -7,6 +7,7 @@ public class PlayerMovement : MonoBehaviour
     #region Variables
 
     [HideInInspector] public bool preventRunning = false;
+    [HideInInspector] public bool preventCrouching = false; // <--- YENİ: Eğilme yasağı
 
     [Header("Interaction")]
     public bool canMove = true; 
@@ -180,6 +181,22 @@ public class PlayerMovement : MonoBehaviour
     #endregion
 
     #region Interaction Logic
+
+    // --- YENİ EKLENEN FONKSİYON: Zorla Ayağa Kaldır ---
+    // CombatSystem saldırı anında bunu çağıracak.
+    public void StopCrouch()
+    {
+        if (isCrouching)
+        {
+            isCrouching = false;
+            animator.SetBool("IsCrouching", false);
+
+            // Saldırı anında 'HandleMovement' çalışmayacağı için (canMove=false olduğu için),
+            // boyu ve merkezi burada MANUEL olarak düzeltmeliyiz.
+            characterController.height = originalHeight;
+            characterController.center = originalCenter;
+        }
+    }
 
     private void CheckAllInteractions()
     {
@@ -440,14 +457,17 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleMovement()
     {
-        // Ekstra güvenlik için buraya da kontrol ekleyebiliriz ama 
-        // yukarıdaki Update modifikasyonu zaten buraya girmesini engelliyor.
         if (isGrounded)
         {
             float input = Input.GetAxis("Horizontal");
             bool isRunning = Input.GetKey(KeyCode.LeftShift) && !preventRunning;
             
-            if (Input.GetKeyDown(KeyCode.C)) { isCrouching = !isCrouching; animator.SetBool("IsCrouching", isCrouching); }
+            // --- C TUŞU KONTROLÜ (GÜNCELLENDİ) ---
+            if (Input.GetKeyDown(KeyCode.C) && !preventCrouching) 
+            { 
+                isCrouching = !isCrouching; 
+                animator.SetBool("IsCrouching", isCrouching); 
+            }
 
             if (isCrouching) { characterController.height = crouchHeight; characterController.center = crouchCenter; }
             else { characterController.height = originalHeight; characterController.center = originalCenter; }

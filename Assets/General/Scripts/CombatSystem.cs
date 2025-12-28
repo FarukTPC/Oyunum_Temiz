@@ -28,7 +28,7 @@ public class CombatSystem : MonoBehaviour
         public bool stopMovement = true;
 
         [Tooltip("Saldırı sırasında karakter yürüyebilsin ama KOŞAMASIN. (Yumruklar için TRUE yap)")]
-        public bool forceWalk = false; // <--- YENİ ÖZELLİK
+        public bool forceWalk = false; 
 
         [Header("Menzil")]
         public float attackRange = 1.5f; 
@@ -167,7 +167,11 @@ public class CombatSystem : MonoBehaviour
 
     private IEnumerator PerformAttackRoutine(AttackData attack)
     {
-        // 1. Hareket Kısıtlamalarını Uygula
+        // 1. EĞİLMEYİ İPTAL ET VE KİLİTLE (GÜNCELLENDİ)
+        playerMovement.StopCrouch();            // Eğiliyorsa ayağa kaldır
+        playerMovement.preventCrouching = true; // Vuruş boyunca eğilme tuşunu kilitle
+
+        // 2. Hareket Kısıtlamalarını Uygula
         if (attack.stopMovement) 
         {
             // Tamamen durdur (Uppercut / Tekme)
@@ -180,32 +184,33 @@ public class CombatSystem : MonoBehaviour
             playerMovement.preventRunning = true;
         }
 
-        // 2. Input KİLİTLENSİN
+        // 3. Input KİLİTLENSİN
         isAttacking = true; 
 
-        // 3. Animasyon
+        // 4. Animasyon
         animator.SetTrigger(attack.animTrigger);
         lastAttackTime = Time.time;
 
-        // 4. Vuruş Bekle
+        // 5. Vuruş Bekle
         yield return new WaitForSeconds(attack.hitTime);
 
-        // 5. Hasar Ver
+        // 6. Hasar Ver
         CheckHit(attack);
 
         // --- INPUT KİLİDİNİ AÇ (Kombo için) ---
         isAttacking = false; 
 
-        // 6. Animasyonun Geri Kalanını Bekle (Kısıtlamalar Devam Ediyor)
+        // 7. Animasyonun Geri Kalanını Bekle (Kısıtlamalar Devam Ediyor)
         float remainingTime = attack.totalDuration - attack.hitTime;
         if (remainingTime > 0) yield return new WaitForSeconds(remainingTime);
 
-        // 7. Kısıtlamaları Kaldır
+        // 8. Kısıtlamaları Kaldır
         // Eğer oyuncu bu arada yeni bir saldırıya başlamadıysa (Kombo yapmadıysa)
         if (!isAttacking && !isBlocking) 
         {
             playerMovement.canMove = true;
-            playerMovement.preventRunning = false; // Koşma yasağını kaldır
+            playerMovement.preventRunning = false; 
+            playerMovement.preventCrouching = false; // Eğilme yasağını kaldır
         }
     }
 

@@ -1323,7 +1323,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &432432460
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2234,6 +2234,37 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!1 &868137831
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 868137832}
+  m_Layer: 0
+  m_Name: HitPoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &868137832
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 868137831}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.038, y: 1.108, z: 0.29}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1511965507}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &914688280
 GameObject:
   m_ObjectHideFlags: 0
@@ -8551,7 +8582,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
-    m_AddedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: 400116, guid: 6f6eba35b8edc7d46be2a84fcc3eb248, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 868137832}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 100116, guid: 6f6eba35b8edc7d46be2a84fcc3eb248, type: 3}
       insertIndex: -1
@@ -8559,6 +8593,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 100116, guid: 6f6eba35b8edc7d46be2a84fcc3eb248, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1511965505}
+    - targetCorrespondingSourceObject: {fileID: 100116, guid: 6f6eba35b8edc7d46be2a84fcc3eb248, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1511965509}
   m_SourcePrefab: {fileID: 100100000, guid: 6f6eba35b8edc7d46be2a84fcc3eb248, type: 3}
 --- !u!1 &1511965500 stripped
 GameObject:
@@ -8602,6 +8639,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 99260bb4ab23334488f673ec3455dc56, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerMovement
+  preventRunning: 0
+  preventCrouching: 0
   canMove: 1
   interactDistance: 2
   interactLayer:
@@ -8719,6 +8758,78 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 400116, guid: 6f6eba35b8edc7d46be2a84fcc3eb248, type: 3}
   m_PrefabInstance: {fileID: 1511965499}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &1511965509
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1511965500}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a96555710d174eb409209654f4415822, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CombatSystem
+  punchComboList:
+  - attackName: Sol Direk
+    damage: 10
+    animTrigger: Punch1
+    hitTime: 0.3
+    totalDuration: 0.9
+    stopMovement: 0
+    forceWalk: 1
+    attackRange: 0
+    attackRadius: 0
+    comboResetTime: 0.8
+  - attackName: "Sa\u011F Direk"
+    damage: 15
+    animTrigger: Punch2
+    hitTime: 0.4
+    totalDuration: 1
+    stopMovement: 0
+    forceWalk: 1
+    attackRange: 0
+    attackRadius: 0
+    comboResetTime: 0
+  - attackName: "Son Vuru\u015F"
+    damage: 25
+    animTrigger: HeavyPunch
+    hitTime: 0.6
+    totalDuration: 1.5
+    stopMovement: 0
+    forceWalk: 1
+    attackRange: 0
+    attackRadius: 0
+    comboResetTime: 0
+  specialAttacks:
+  - attackName: Uppercut
+    damage: 40
+    animTrigger: Uppercut
+    hitTime: 0.4
+    totalDuration: 1.2
+    stopMovement: 1
+    forceWalk: 0
+    attackRange: 0
+    attackRadius: 0
+    comboResetTime: 0
+    modifierKey: 113
+  kickAttack:
+    attackName: Tekme
+    damage: 20
+    animTrigger: Kick
+    hitTime: 0.5
+    totalDuration: 1.1
+    stopMovement: 1
+    forceWalk: 0
+    attackRange: 1.5
+    attackRadius: 0.5
+    comboResetTime: 0.8
+    triggerKey: 327
+  blockAnimBool: IsBlocking
+  enemyLayer:
+    serializedVersion: 2
+    m_Bits: 4096
+  hitPoint: {fileID: 868137832}
 --- !u!1 &1514196419
 GameObject:
   m_ObjectHideFlags: 0

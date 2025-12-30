@@ -4,15 +4,20 @@ using UnityEngine.AI;
 [RequireComponent(typeof(NavMeshAgent))]
 public class TestEnemy : MonoBehaviour
 {
-    // ... (Üst kısımdaki değişkenler AYNI KALSIN) ...
     [Header("Detection Settings (Radar)")]
     public Transform playerTarget; 
     
     [UnityEngine.Range(1.0f, 20.0f)]
     public float detectionRange = 8.0f;
 
-    [UnityEngine.Range(1.0f, 5.0f)]
-    public float attackRange = 1.5f; 
+    // --- DÜZELTME 1: Varsayılan değeri 1.5'ten 1.0'a düşürdük ---
+    [Tooltip("Düşmanın vurmak için ne kadar yaklaşması gerekiyor?")]
+    [UnityEngine.Range(0.5f, 3.0f)]
+    public float attackRange = 0.5f; // Burun buruna gelmesi için kısalttık
+
+    [Header("Movement Settings (Hız Ayarları)")]
+    public float walkSpeed = 2.0f;
+    public float runSpeed = 6.0f;
 
     [Header("Combat Settings")]
     public float timeBetweenAttacks = 2.0f; 
@@ -33,13 +38,23 @@ public class TestEnemy : MonoBehaviour
     {
         animator = GetComponent<Animator>();
         agent = GetComponent<NavMeshAgent>();
+        
         startPoint = transform.position;
         patrolTimer = waitTime; 
+
+        // --- DÜZELTME 2: Agent'ın kendi frenini kapatıyoruz ---
+        // Böylece "attackRange" içine girene kadar duraksamadan koşacak.
+        agent.stoppingDistance = 0f; 
+        // -----------------------------------------------------
 
         if (playerTarget == null)
         {
             GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
-            if (playerObj != null) playerTarget = playerObj.transform;
+            if (playerObj != null) 
+            {
+                // Root objeyi (Karakterin kendisini) aldığımızdan emin oluyoruz.
+                playerTarget = playerObj.transform;
+            }
         }
         
         agent.updateRotation = false; 
@@ -49,9 +64,10 @@ public class TestEnemy : MonoBehaviour
     {
         if (playerTarget == null) return;
 
+        // Mesafeyi ölçerken "Player'ın Merkezi" ile "Enemy'nin Merkezi" arasını ölçüyoruz.
         float distanceToPlayer = Vector3.Distance(transform.position, playerTarget.position);
         
-        float speedPercent = agent.velocity.magnitude / agent.speed;
+        float speedPercent = agent.velocity.magnitude / runSpeed;
         animator.SetFloat("Speed", speedPercent, 0.1f, Time.deltaTime);
 
         if (distanceToPlayer <= detectionRange)
@@ -72,12 +88,18 @@ public class TestEnemy : MonoBehaviour
 
         if (distance > attackRange)
         {
+            agent.speed = runSpeed; 
             agent.isStopped = false;
             agent.SetDestination(playerTarget.position);
         }
         else
         {
+            // Menzile girdi, DUR ve SALDIR
             agent.isStopped = true;
+            
+            // Eğer hala çok uzaktaysa (Colliderlar yüzünden) hafifçe kaydırılabilir
+            // Ama 1.0f genelde yeterli bir yakınlıktır.
+
             if (Time.time >= lastAttackTime + timeBetweenAttacks)
             {
                 Attack();
@@ -85,40 +107,34 @@ public class TestEnemy : MonoBehaviour
         }
     }
 
-    // --- GÜNCELLENEN KISIM: RANDOM SALDIRI ---
     private void Attack()
     {
         lastAttackTime = Time.time;
         
-        // 1 ile 6 arasında (6 dahil değil) rastgele sayı seç: 1, 2, 3, 4, 5
         int randomAttack = Random.Range(1, 6); 
-        
-        // Tetikleyici ismini oluştur: "Attack1", "Attack2" ... "Attack5"
         string triggerName = "Attack" + randomAttack;
         
         animator.SetTrigger(triggerName);
 
-        // Hasar Verme
         PlayerHealth playerHealth = playerTarget.GetComponent<PlayerHealth>();
         if (playerHealth != null)
         {
             playerHealth.TakeDamage(enemyDamage);
         }
     }
-    // ------------------------------------------
 
-    // ... (Patrol, RotateTowards, TakeHit gibi diğer fonksiyonlar AYNI KALSIN) ...
     private void Patrol()
     {
         inCombatMode = false;
         animator.SetBool("InCombat", false);
-        
+        agent.speed = walkSpeed;
+
         if (!agent.pathPending && agent.remainingDistance < 0.5f)
         {
             patrolTimer += Time.deltaTime;
             if (patrolTimer >= waitTime)
             {
-                Vector3 newPos = RandomNavSphere(startPoint, patrolRadius, -1);
+                Vector3 newPos = GetRandomZPoint();
                 agent.SetDestination(newPos);
                 patrolTimer = 0;
             }
@@ -130,13 +146,17 @@ public class TestEnemy : MonoBehaviour
         }
     }
 
-    public static Vector3 RandomNavSphere(Vector3 origin, float dist, int layermask)
+    private Vector3 GetRandomZPoint()
     {
-        Vector3 randDirection = Random.insideUnitSphere * dist;
-        randDirection += origin;
-        NavMeshHit navHit;
-        NavMesh.SamplePosition(randDirection, out navHit, dist, layermask);
-        return navHit.position;
+        float randomZ = Random.Range(-patrolRadius, patrolRadius);
+        Vector3 targetPos = new Vector3(startPoint.x, startPoint.y, startPoint.z + randomZ);
+
+        NavMeshHit hit;
+        if (NavMesh.SamplePosition(targetPos, out hit, 2.0f, NavMesh.AllAreas))
+        {
+            return hit.position;
+        }
+        return startPoint;
     }
 
     private void RotateTowards(Vector3 target)
@@ -146,8 +166,8 @@ public class TestEnemy : MonoBehaviour
         if (direction == Vector3.zero) return;
         
         Quaternion lookRotation = Quaternion.LookRotation(direction);
-        float speed = inCombatMode ? 10f : 5f; 
-        transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * speed);
+        float rotateSpeed = inCombatMode ? 10f : 5f; 
+        transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * rotateSpeed);
     }
 
     public void TakeHit(int hitType)
@@ -177,6 +197,11 @@ public class TestEnemy : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position, detectionRange);
         
         Gizmos.color = Color.blue;
-        Gizmos.DrawWireSphere(startPoint == Vector3.zero ? transform.position : startPoint, patrolRadius);
+        Vector3 center = startPoint == Vector3.zero ? transform.position : startPoint;
+        Gizmos.DrawLine(center + Vector3.forward * patrolRadius, center + Vector3.back * patrolRadius);
+        
+        // Saldırı menzilini de sarı bir küreyle görelim
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, attackRange);
     }
 }

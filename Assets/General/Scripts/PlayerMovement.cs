@@ -485,11 +485,15 @@ private void Update()
                 transform.rotation = Quaternion.Euler(0f, lookAngle, 0f);
                 animator.SetFloat("Speed", isCrouching ? currentSpeed : (isRunning ? 1f : 0.5f), 0.1f, Time.deltaTime);
             }
-            else { moveDirection = Vector3.zero; animator.SetFloat("Speed", 0f, 0.1f, Time.deltaTime); }
+            else 
+            { moveDirection = Vector3.zero; animator.SetFloat("Speed", 0f, 0.1f, Time.deltaTime); }
 
-            // Zıplama bloğu kaldırıldı.
         }
-        characterController.Move(moveDirection * Time.deltaTime);
+
+        if (characterController.enabled)
+        {
+            characterController.Move(moveDirection * Time.deltaTime);
+        }
     }
 
     public void InstantStop()

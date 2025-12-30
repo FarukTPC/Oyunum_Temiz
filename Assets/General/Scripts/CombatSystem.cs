@@ -113,6 +113,8 @@ public class CombatSystem : MonoBehaviour
 
     private void Update()
     {
+
+        if (!playerMovement.canMove && !isAttacking && !isBlocking) return;
         HandleBlocking();
         if (isBlocking || isAttacking) return;
         HandleAttacks();

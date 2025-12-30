@@ -2,9 +2,12 @@ using UnityEngine;
 
 public class TestEnemy : MonoBehaviour
 {
-    [Header("Detection Settings")]
+    [Header("Detection Settings (Radar Ayarları)")]
     public Transform playerTarget;
-    public float combatDistance = 4.0f;
+
+    [Tooltip("Düşmanın oyuncuyu fark etme ve gard alma mesafesi (Metre).")]
+    [UnityEngine.Range(1.0f, 15.0f)] // Inspector'de kjaydırma çubugu çıkar
+    public float detectionRange = 3.0f;
     public float faceSpeed = 5.0f;
 
     private Animator animator;
@@ -13,26 +16,24 @@ public class TestEnemy : MonoBehaviour
     private void Start()
     {
         animator = GetComponent<Animator>();
-
         if (playerTarget == null)
         {
             GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
             if (playerObj != null) playerTarget = playerObj.transform;
         }
     }
-
+    
     private void Update()
     {
         if (playerTarget == null) return;
         float distanceToPlayer = Vector3.Distance(transform.position, playerTarget.position);
-        bool shouldBeInCombat = distanceToPlayer <= combatDistance;
+        bool isPlayerInRadar = distanceToPlayer <= detectionRange;
 
-        if (shouldBeInCombat != inCombatMode)
+        if (isPlayerInRadar != inCombatMode)
         {
-            inCombatMode = shouldBeInCombat;
+            inCombatMode = isPlayerInRadar;
             animator.SetBool("InCombat", inCombatMode);
         }
-
         if (inCombatMode)
         {
             Vector3 direction = (playerTarget.position - transform.position).normalized;
@@ -47,18 +48,18 @@ public class TestEnemy : MonoBehaviour
         if (animator == null) return;
         switch (hitType)
         {
-            case 0:
-            animator.SetTrigger("HitNormal");
-            break;
-            case 1:
-            animator.SetTrigger("HitKick");
-            break;
-            case 2:
-            animator.SetTrigger("HitHeavy");
-            break;
-            default:
-            animator.SetTrigger("HitNormal");
-            break;
+            case 0: animator.SetTrigger("HitNormal"); break;
+            case 1: animator.SetTrigger("HitKick"); break;
+            case 2: animator.SetTrigger("HitHeavy"); break;
+            default: animator.SetTrigger("HitNormal"); break;
         }
     }
+
+    private void OnDDrawGizmosSelected()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, detectionRange);
+    }
 }
+
+

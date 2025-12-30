@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections;
+using NUnit.Framework;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerMovement : MonoBehaviour
@@ -74,9 +75,7 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Movement Settings")]
     public float speed = 4f; 
-    [Range(0, 360)] public float streetAngle = 0f; 
-
-    // NOT: Zıplama Ayarları Kaldırıldı.
+    [UnityEngine.Range(0, 360)] public float streetAngle = 0f; 
 
     [Header("Crouch Settings")]
     public float crouchHeight = 1.0f; 
@@ -130,7 +129,7 @@ public class PlayerMovement : MonoBehaviour
         topEntryYCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.5f, 0.3f), new Keyframe(1, 1));
     }
 
-    private void Update()
+private void Update()
     {
         if (isClimbingLadder)
         {
@@ -139,45 +138,50 @@ public class PlayerMovement : MonoBehaviour
         }
 
         // --- HAREKET KİLİDİ VE HARD STOP ---
-        // Eğer hareket iznimiz yoksa (Saldırıyorsak, blokluyorsak vs.)
         if (!canMove)
         {
             // Animator'ı anında durdur
             animator.SetFloat("Speed", 0f);
             
-            // Yerçekimi hariç tüm hızı öldür (KAYMAYI ÖNLER)
+            // Hızı sıfırla
             velocity.x = 0;
             velocity.z = 0;
             
-            // Sadece yerçekimi uygula (havada asılı kalmasın diye)
+            // --- KRİTİK DÜZELTME BURADA ---
+            // Eğer Parkour/Merdiven yüzünden Controller kapalıysa,
+            // sakın Move() çağırma ve direkt çık.
+            if (!characterController.enabled) return; 
+            // ------------------------------
+
+            // Sadece yerçekimi uygula (Saldırı yaparken havada kalmasın diye)
             isGrounded = characterController.isGrounded;
             if (isGrounded && velocity.y < 0) velocity.y = -2f;
             velocity.y += gravity * Time.deltaTime;
             characterController.Move(velocity * Time.deltaTime);
 
-            // Başka hiçbir işlem yapma ve çık
             return; 
         }
 
+        // --- NORMAL HAREKET ---
         isGrounded = characterController.isGrounded;
         animator.SetBool("IsGrounded", isGrounded);
 
-        if (isGrounded && velocity.y < 0)
-        {
-            velocity.y = -2f; 
-        }
+        if (isGrounded && velocity.y < 0) velocity.y = -2f;
 
         if (canMove && Input.GetKeyDown(KeyCode.F) && isGrounded)
         {
             CheckAllInteractions();
         }
 
-        // Hareket izni varsa normal işlemlere devam et
         HandleMovement();
         velocity.y += gravity * Time.deltaTime;
-        characterController.Move(velocity * Time.deltaTime);
+        
+        // Burada da güvenlik kontrolü (Her ihtimale karşı)
+        if (characterController.enabled)
+        {
+            characterController.Move(velocity * Time.deltaTime);
+        }
     }
-
     #endregion
 
     #region Interaction Logic
